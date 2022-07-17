@@ -25,7 +25,26 @@ public class Client
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(_timeout);
 
-        await SendCoreAsync(cts.Token);
+        try
+        {
+            await SendCoreAsync(cts.Token);
+        }
+        catch (OperationCanceledException ex) when (ex.CancellationToken == cts.Token)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // 呼び出し元の CancellationToken が原因でキャンセルされた場合はこっちのルートを通る。
+                // OperationCanceledException の第3引数に、呼び出し元の CancellationToken を渡せば
+                // 呼び出し元側で指定したタイムアウトによるものかどうかが判別できる。
+                throw new OperationCanceledException(ex.Message, ex, cancellationToken);
+            }
+            else
+            {
+                // SendCoreAsync 内部で発生したタイムアウトなので、それを判別できるような例外なりなんなりの実装する。
+                // ここはエントリに従って TimeoutException をスローすることとする。
+                throw new TimeoutException($"The request was canceled. Timeout is [{_timeout}].");
+            }
+        }
     }
 
     private async Task SendCoreAsync(CancellationToken cancellationToken)
